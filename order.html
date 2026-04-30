@@ -1,0 +1,124 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Order Processing System</title>
+    <style>
+        :root { --primary: #1a73e8; --bg: #f8f9fa; --border: #dadce0; }
+        body { font-family: 'Segoe UI', Roboto, sans-serif; background: var(--bg); margin: 0; padding: 20px; color: #3c4043; }
+        .wrapper { max-width: 900px; margin: 0 auto; background: white; padding: 30px; border-radius: 8px; box-shadow: 0 1px 3px rgba(0,0,0,0.12); }
+        h1 { font-size: 24px; color: var(--primary); margin-bottom: 20px; border-bottom: 1px solid var(--border); padding-bottom: 10px; }
+        
+        .grid-container { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-bottom: 20px; }
+        .full-width { grid-column: span 2; }
+        
+        label { display: block; font-weight: 600; margin-bottom: 8px; font-size: 14px; }
+        textarea { width: 100%; height: 200px; padding: 12px; border: 1px solid var(--border); border-radius: 4px; box-sizing: border-box; font-family: 'Courier New', monospace; font-size: 13px; }
+        input { width: 100%; padding: 12px; border: 1px solid var(--border); border-radius: 4px; box-sizing: border-box; font-size: 15px; }
+        
+        button { width: 100%; padding: 15px; background: var(--primary); color: white; border: none; border-radius: 4px; font-size: 16px; font-weight: bold; cursor: pointer; transition: background 0.2s; }
+        button:hover { background: #1557b0; }
+        
+        #status { margin-top: 20px; padding: 15px; border-radius: 4px; text-align: center; font-weight: 500; display: none; }
+    </style>
+</head>
+<body>
+
+<div class="wrapper">
+    <h1>Order Entry Dashboard</h1>
+    
+    <div class="grid-container">
+        <div class="box">
+            <label>1. Paste Book Order Text</label>
+            <textarea id="bookText" placeholder="Paste message with 📖 books and Subtotal..."></textarea>
+        </div>
+        <div class="box">
+            <label>2. Paste Delivery Details</label>
+            <textarea id="deliveryText" placeholder="Paste message with 👤 Full Name and 📍 Landmark..."></textarea>
+        </div>
+        <div class="full-width">
+            <label>3. Delivery Charge (Manual Input)</label>
+            <input type="number" id="deliveryCharge" placeholder="Enter amount (e.g. 50)">
+        </div>
+    </div>
+
+    <button onclick="processAndSubmit()">Sync Data to Google Sheet</button>
+    <div id="status"></div>
+</div>
+
+<script>
+    const APPS_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycby98t4fOcUV6drV5cOAWtxNu7XWXm5ZNRgNZqwHret-XXkuxkmvADk1Wa_85EaiOzi6/exec';
+
+    function extract(text, regex) {
+        const match = text.match(regex);
+        return match ? match[1].trim() : "";
+    }
+
+    function extractBooks(text) {
+        const lines = text.split('\n');
+        let books = [];
+        for (let i = 0; i < lines.length; i++) {
+            if (lines[i].includes('📖')) {
+                let name = lines[i].replace('📖', '').trim();
+                let qtyPrice = (lines[i+3] || "").replace('- ', '').trim();
+                books.push(`${name} [${qtyPrice}]`);
+            }
+        }
+        return books.join(" | ");
+    }
+
+    function processAndSubmit() {
+        const bookRaw = document.getElementById('bookText').value;
+        const deliveryRaw = document.getElementById('deliveryText').value;
+        const charge = parseFloat(document.getElementById('deliveryCharge').value) || 0;
+        
+        const subtotalStr = extract(bookRaw, /Subtotal:\s*₹?\s*([\d.]+)/i);
+        const subtotalNum = parseFloat(subtotalStr) || 0;
+        const totalWithDelivery = "₹" + (subtotalNum + charge).toFixed(2);
+
+        const payload = {
+            orderTime: extract(bookRaw, /Order Time:\s*(.*)/i),
+            name: extract(deliveryRaw, /Full Name:\s*(.*)/i),
+            mobile: extract(deliveryRaw, /Mobile Number:\s*(.*)/i),
+            country: extract(deliveryRaw, /Country:\s*(.*)/i),
+            flat: extract(deliveryRaw, /Apartment:\s*(.*)/i),
+            area: extract(deliveryRaw, /Village:\s*(.*)/i),
+            landmark: extract(deliveryRaw, /Landmark:\s*(.*)/i),
+            pincode: extract(deliveryRaw, /Pincode:\s*(.*)/i),
+            city: extract(deliveryRaw, /City:\s*(.*)/i),
+            state: extract(deliveryRaw, /State:\s*(.*)/i),
+            payment: extract(deliveryRaw, /Payment Mode.*:\s*(.*)/i),
+            books: extractBooks(bookRaw),
+            totalBill: totalWithDelivery,
+            deliveryCharge: "₹" + charge.toFixed(2)
+        };
+
+        const statusDiv = document.getElementById('status');
+        statusDiv.style.display = "block";
+        statusDiv.textContent = "Sending to Sheet...";
+        statusDiv.style.background = "#e8f0fe";
+        statusDiv.style.color = "#1967d2";
+
+        fetch(APPS_SCRIPT_URL, {
+            method: 'POST',
+            mode: 'no-cors',
+            body: JSON.stringify(payload)
+        }).then(() => {
+            statusDiv.textContent = "Success! Data saved to table.";
+            statusDiv.style.background = "#e6f4ea";
+            statusDiv.style.color = "#1e8e3e";
+            // Optional: Clear form
+            document.getElementById('bookText').value = "";
+            document.getElementById('deliveryText').value = "";
+            document.getElementById('deliveryCharge').value = "";
+        }).catch(err => {
+            statusDiv.textContent = "Error: " + err;
+            statusDiv.style.background = "#fce8e6";
+            statusDiv.style.color = "#d93025";
+        });
+    }
+</script>
+
+</body>
+</html>
